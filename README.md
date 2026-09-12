@@ -1,102 +1,65 @@
-# LTX 2.3 image-to-video — RunPod Serverless
+# LTX 2.5 image-to-video — RunPod Serverless
 
-This repository packages the LTX 2.3 Legacy ComfyUI workflow as a fixed,
-queue-based RunPod Serverless worker. A request supplies one image; the worker
-uploads it to ComfyUI, inserts it into node `350`, runs the bundled workflow,
-and returns the MP4 produced by node `449`.
+This branch is set up for the simplest deployment path:
 
-The client never sends a workflow, prompt, seed, or ComfyUI node mapping.
+- Deploy directly from this GitHub branch in RunPod.
+- Select RunPod Cached Model: `Lightricks/LTX-2.5`.
+- Use one 48 GB GPU.
+- No Docker Desktop.
+- No network volume.
+- No local model downloads.
+- API input is only `image` + `prompt`.
+- The worker automatically expands the prompt with motion/camera/temporal-consistency guidance before generation.
 
-## Request
+## RunPod setup
 
-Use `/run` for this long-running video job:
+1. In RunPod Serverless choose **Deploy from GitHub**.
+2. Repository: `grottijohm-cyber/comfyui-ltx23legacy`.
+3. Branch: `ltx25-cached`.
+4. Dockerfile: `Dockerfile`.
+5. Cached Model / Hugging Face model: `Lightricks/LTX-2.5`.
+6. GPU: one 48 GB GPU (L40S / RTX 6000 Ada / RTX PRO 6000 class are suitable choices).
+7. Active workers: 0.
+8. Max workers: 1.
+9. Idle timeout: 120 seconds.
+10. Execution timeout: 7200 seconds.
+11. Deploy.
 
-```bash
-curl --request POST \
-  "https://api.runpod.ai/v2/YOUR_ENDPOINT_ID/run" \
-  --header "Authorization: Bearer YOUR_RUNPOD_API_KEY" \
-  --header "Content-Type: application/json" \
-  --data '{
-    "input": {
-      "image": "https://example.com/reference.png"
-    }
-  }'
-```
+RunPod's cached-model mount is expected at:
+`/runpod-volume/huggingface-cache/hub/models--Lightricks--LTX-2.5/snapshots/<revision>/`
 
-`input.image` may be an HTTP(S) URL, a base64 string, or a base64 data URI:
+## Request format
 
 ```json
 {
   "input": {
-    "image": "data:image/png;base64,iVBORw0KGgo..."
+    "image": "https://example.com/image.jpg",
+    "prompt": "The person turns toward the camera and smiles."
   }
 }
 ```
 
-No other input fields are accepted.
+`image` may be an HTTPS URL, a data URL, or raw base64 image data.
 
 ## Response
 
-With S3-compatible storage configured:
+Successful jobs return the generated MP4 as base64:
 
 ```json
 {
-  "status": "success",
-  "prompt_id": "...",
-  "videos": [
-    {
-      "filename": "LTX2_3_00001-audio.mp4",
-      "type": "url",
-      "url": "https://...",
-      "mime_type": "video/mp4"
-    }
-  ]
+  "video": "<base64 mp4>",
+  "mime_type": "video/mp4",
+  "prompt_enhanced": true
 }
 ```
 
-Without object storage, outputs up to 8 MiB are returned as base64. Larger
-outputs return an error explaining which storage variables are missing.
+## Generation defaults
 
-## Deploy from GitHub
+- LTX 2.5 distilled official pipeline
+- Image-to-video conditioning strength: 1.0
+- 121 frames
+- 24 fps (~5 seconds)
+- 1216 × 704 output
+- FP8 cast + CPU offload for practical 48 GB GPU use
 
-1. Commit and push these files to the repository's `main` branch.
-2. In RunPod, create a **Serverless → Queue** endpoint.
-3. Choose **Deploy from GitHub**, select this repository and `Dockerfile`.
-4. Choose a GPU with enough VRAM for the LTX 2.3 22B workflow.
-5. Set the endpoint execution timeout to at least `7200` seconds.
-6. Deploy, then submit the request shown above.
-
-The Docker build downloads the workflow's model weights. The first build is
-large. `HF_TOKEN` can be supplied as a build argument if Hugging Face requires
-authentication.
-
-## Output storage
-
-Video output is normally too large to place directly in a RunPod job response.
-Configure these endpoint environment variables for any S3-compatible provider:
-
-```text
-BUCKET_ENDPOINT_URL=https://s3.REGION.amazonaws.com
-BUCKET_ACCESS_KEY_ID=...
-BUCKET_SECRET_ACCESS_KEY=...
-BUCKET_NAME=your-bucket
-```
-
-The credentials stay in RunPod environment variables and must not be committed
-to this repository.
-
-## Important files
-
-- `handler.py` starts the RunPod queue handler.
-- `worker.py` validates/downloads the image, runs ComfyUI, and publishes output.
-- `api-workflow.json` is the repaired Keyframe 1 API workflow.
-- `workflow.json` is the editable ComfyUI canvas workflow.
-- `Dockerfile` installs ComfyUI nodes, models, and the image-only handler.
-
-## Local structural tests
-
-These tests do not load the LTX models or require a GPU:
-
-```bash
-python -m unittest discover -s tests -v
-```
+The large LTX weights are not baked into the container. RunPod supplies them through Cached Models, which keeps the GitHub build much smaller.
