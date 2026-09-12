@@ -1,0 +1,20 @@
+FROM runpod/worker-comfyui:5.10.0-base
+
+# Keep the container itself small. LTX 2.5 model files are supplied through
+# RunPod's cached-model facility rather than baked into the image or stored on
+# a network volume.
+
+COPY requirements-ltx25.txt /tmp/requirements-ltx25.txt
+RUN uv pip install -r /tmp/requirements-ltx25.txt
+
+COPY worker_ltx25.py /worker_ltx25.py
+COPY handler_ltx25.py /handler.py
+
+ENV COMFY_URL=http://127.0.0.1:8188 \
+    JOB_TIMEOUT_SECONDS=7200 \
+    LTX25_MODEL=ltx-2.5-22b-distilled-transformer-comfy-int8-convrot.safetensors \
+    LTX25_VIDEO_VAE=ltx-2.5-video-vae-bf16.safetensors \
+    LTX25_AUDIO_VAE=ltx-2.5-audio-vae-bf16.safetensors \
+    LTX25_TEXT_ENCODER=gemma4-12b-with-proj-ltx-2.5-comfy-int8-convrot.safetensors \
+    LTX25_UPSCALER=ltx-2.5-latent-spatial-upscaler-x2-bf16-1.0.safetensors \
+    LTX25_PROMPT_MODEL=gemma4_e2b_it_int8_convrot.safetensors
